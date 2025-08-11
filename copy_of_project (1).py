@@ -8,191 +8,16 @@ Original file is located at
 
 Method 1
 """
-
-!pip install keras_tuner
-!pip install tokenizer
-
-# Import necessary libraries
-import numpy as np
-import tensorflow as tf
-from keras.src.layers import Bidirectional  # Import Bidirectional layer from Keras
-from keras_tuner import HyperModel, BayesianOptimization  # Import HyperModel and BayesianOptimization from Keras Tuner
-from tensorflow.keras.models import Sequential  # Import Sequential model from TensorFlow Keras
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Conv1D, GlobalMaxPooling1D  # Import various layers from TensorFlow Keras
-from tensorflow.keras.preprocessing.text import Tokenizer  # Import Tokenizer for text preprocessing
-from tensorflow.keras.preprocessing.sequence import pad_sequences  # Import pad_sequences for padding sequences
-from tensorflow.keras.optimizers import Adam  # Import Adam optimizer
-from tensorflow.keras.losses import SparseCategoricalCrossentropy  # Import SparseCategoricalCrossentropy loss
-from sklearn.utils.class_weight import compute_class_weight  # Import compute_class_weight for calculating class weights
-from sklearn.model_selection import train_test_split  # Import train_test_split for splitting data
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau  # Import callbacks for model training
-from keras_tuner.tuners import RandomSearch  # Import RandomSearch tuner from Keras Tuner
-from tensorflow.keras.losses import SparseCategoricalCrossentropy  # Import SparseCategoricalCrossentropy loss from TensorFlow Keras
-from keras_tuner.engine.hypermodel import HyperModel  # Import HyperModel from Keras Tuner
-from nltk.corpus import stopwords  # Import stopwords from NLTK corpus
-import re  # Import re module for regular expressions
-import nltk  # Import NLTK library for natural language processing
-print("Imported")
-# Download NLTK stopwords
-nltk.download('stopwords')
-
-# Sample dataset (you need to repl10ace this with your actual dataset)
-
-data = [
-    ("I love this product!", "positive"),
-    ("Terrible experience, never buying again.", "negative"),
-    ("It's okay, nothing special.", "neutral"),
-    ("This movie was fantastic!", "positive"),
-    ("Worst restaurant ever.", "negative"),
-    ("Average performance.", "neutral"),
-    ("The weather is so beautiful today!", "positive"),
-    ("I'm so disappointed with the service.", "negative"),
-    ("No strong feelings either way.", "neutral"),
-    ("This book is amazing.", "positive"),
-    ("I regret buying this.", "negative"),
-    ("I don't really have an opinion.", "neutral"),
-    ("Absolutely wonderful experience!", "positive"),
-    ("I can't stand this anymore.", "negative"),
-    ("Not much to say about it.", "neutral"),
-    ("The concert was incredible!", "positive"),
-    ("Awful customer support.", "negative"),
-    ("I'm not sure how I feel about it.", "neutral"),
-    ("Delicious food and great ambiance.", "positive"),
-    ("I'm furious about this situation.", "negative"),
-    ("It's just average, nothing remarkable.", "neutral"),
-    ("Loved every minute of it!", "positive"),
-    ("Couldn't be more dissatisfied.", "negative"),
-    ("It's alright, I guess.", "neutral"),
-    ("The product exceeded my expectations!", "positive"),
-    ("Horrible quality, waste of money.", "negative"),
-    ("I have mixed feelings about this.", "neutral"),
-    ("Best service I've ever received.", "positive"),
-    ("I'm really angry with the company.", "negative"),
-    ("Not bad, but not great either.", "neutral"),
-    ("Incredibly enjoyable experience!", "positive"),
-    ("This is a complete disaster.", "negative"),
-    ("It's decent, nothing too special.", "neutral"),
-    ("I'm thrilled with the results!", "positive"),
-    ("I'm utterly disgusted.", "negative"),
-    ("I'm indifferent to this.", "neutral")
-] # Contains text samples and their corresponding sentiment labels
-
-# Preprocessing function to clean and tokenize text data
-def preprocess(text):
-    text = text.lower()  # Convert text to lowercase
-    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
-    text = " ".join([word for word in text.split() if word not in stopwords.words('english')])  # Remove stopwords
-    return text
-
-# Apply preprocessing to the dataset
-corpus = [preprocess(text) for text, _ in data]
-# Tokenization and padding
-tokenizer = Tokenizer(num_words=5000, oov_token='<OOV>')  # Initialize Tokenizer with a vocabulary size limit
-tokenizer.fit_on_texts(corpus)  # Fit Tokenizer on preprocessed text data
-word_index = tokenizer.word_index  # Get word index from Tokenizer
-sequences = tokenizer.texts_to_sequences(corpus)  # Convert text to sequences of indices
-padded_sequences = pad_sequences(sequences, padding='post')  # Pad sequences to the same length
-
-# Convert sentiment labels to numerical values
-sentiment_mapping = {"positive": 0, "negative":1 , "neutral": 2}  # Mapping of sentiment labels to numerical values
-labels = np.array([sentiment_mapping[sentiment] for _, sentiment in data])  # Convert sentiment labels to numerical values
-
-# Split the data into train and validation sets
-train_texts, val_texts, train_labels, val_labels = train_test_split(padded_sequences, labels, test_size=0.2, random_state=42)  # Split data into training and validation sets
-
-# Calculate class weights for imbalanced dataset
-class_counts = np.bincount(train_labels)  # Count the occurrences of each class in the training labels
-total_samples = sum(class_counts)  # Calculate the total number of samples
-class_weights = {cls: total_samples / count for cls, count in enumerate(class_counts)}  # Calculate class weights
-
-# Define a custom hypermodel for Keras Tuner
-class SentimentHyperModel(HyperModel):
-    def build(self, hp):
-        # Build the model architecture with hyperparameters
-        model = Sequential()  # Initialize a Sequential model
-        model.add(Embedding(len(word_index) + 1, hp.Int('embedding_dim', min_value=64, max_value=256, step=32)))  # Add an Embedding layer
-        model.add(Bidirectional(LSTM(hp.Int('lstm_units', min_value=64, max_value=128, step=32), return_sequences=True)))  # Add a Bidirectional LSTM layer
-        model.add(GlobalMaxPooling1D())  # Add a GlobalMaxPooling1D layer
-
-        model.add(Dense(hp.Int('dense_units', min_value=64, max_value=256, step=32), activation='relu'))  # Add a Dense layer with ReLU activation
-        model.add(Dropout(hp.Float('dense_dropout', min_value=0.2, max_value=0.5, step=0.1)))  # Add a Dropout layer
-
-        model.add(Dense(3, activation='softmax'))  # Add a Dense layer with softmax activation
-        optimizer = Adam(learning_rate=hp.Float('learning_rate', min_value=1e-4, max_value=1, sampling='LOG'))  # Initialize Adam optimizer with a learning rate
-        loss = SparseCategoricalCrossentropy()  # Use SparseCategoricalCrossentropy loss
-        model.compile(loss=loss, optimizer=optimizer, metrics=['accuracy'])  # Compile the model
-        return model
-
-# Instantiate the custom hypermodel
-hypermodel = SentimentHyperModel()
-
-# Use Bayesian optimization for hyperparameter tuning
-tuner = RandomSearch(
-    hypermodel,
-    objective='val_accuracy',
-    max_trials=100,
-    directory='my_dir',
-    project_name='sentiment_analysis'
-)
-
-# Perform the hyperparameter search using training data
-tuner.search(train_texts, train_labels, epochs=100, validation_data=(val_texts, val_labels),
-             class_weight=class_weights, callbacks=[
-        EarlyStopping(patience=3, restore_best_weights=True),
-        ReduceLROnPlateau(factor=0.2, patience=2)
-    ])
-
-# Load and use the best hyperparameters found by the tuner
-best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-
-# Build the model using the best hyperparameters
-best_model = hypermodel.build(best_hps)
-print(best_model)
-
-# Train the best model with your training data
-best_model.fit(train_texts, train_labels, epochs=100, validation_data=(val_texts, val_labels),
-               class_weight=class_weights)
-
-# Function to predict sentiment using the trained best model
-def predict_sentiment_with_best_model(user_input, model):
-    preprocessed_input = preprocess(user_input)  # Preprocess user input
-    sequence = tokenizer.texts_to_sequences([preprocessed_input])  # Convert preprocessed input to sequences
-    padded_sequence = pad_sequences(sequence, padding='post', maxlen=100)  # Pad the sequence
-    sentiment_probabilities = model.predict(padded_sequence)[0]  # Predict sentiment probabilities
-    predicted_sentiment = np.argmax(sentiment_probabilities)  # Get the index of the predicted sentiment
-    return list(sentiment_mapping.keys())[list(sentiment_mapping.values()).index(predicted_sentiment)]  # Map index to sentiment label
-
-# Load the best model after tuning
-best_model = tuner.get_best_models(num_models=1)[0]
-
-# User interaction loop for sentiment prediction
-while True:
-    user_input = input("Enter your message (or 'exit' to quit): ")  # Get user input
-    if user_input.lower() == 'exit':  # Check if user wants to exit
-        break
-sentiment = predict_sentiment_with_best_model(user_input, best_model)  # Predict sentiment
-print("Predicted sentiment:", sentiment)  # Print predicted sentiment
-
-"""Method 2
-
-"""
-
-!pip install transformers
-
-from transformers import pipeline
-sentiment_pipeline = pipeline("sentiment-analysis")
-data = input("enter a text")
-sentiment_pipeline(data)
-
-"""Method **3**"""
-
 import pandas as pd
 
 from google.colab import drive
+# Corrected the mountpoint to the standard /content/drive
 drive.mount('/content/drive', force_remount=True)
 
-df = pd.read_excel("Book1.xlsx")
+# Assuming the file is in the root of your Google Drive.
+# If it's in a different folder, update the path accordingly.
 
+df = pd.read_excel("/content/drive/MyDrive/AI_PROJECT/Book1.xlsx")
 df
 
 import re
@@ -203,9 +28,11 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import PorterStemmer
 
 from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
 
-df["clean_text"] = df["Sentence"].apply(lambda x: re.sub('<.*?>',"",x))
+# Replace NaNs with empty strings, then clean
+df["Sentence"] = df["Sentence"].fillna("")
+df["clean_text"] = df["Sentence"].apply(lambda x: re.sub('<.*?>', "", x))
+"""df["clean_text"] = df["Sentence"].apply(lambda x: re.sub('<.*?>',"",x))"""
 
 df
 
@@ -223,6 +50,7 @@ stop_words = set(stopwords.words("english"))
 stop_words
 
 nltk.download("punkt")
+nltk.download("punkt_tab") 
 df["tokenized_text"] = df["clean_text"].apply(lambda x: word_tokenize(x))
 
 df["clean_text"]
@@ -247,12 +75,24 @@ df["filter_text"]
 X_train,X_test,y_train,y_test = train_test_split(df["filter_text"],df["Sentiment"],test_size=0.2,random_state=42)
 
 y_test
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-tfidf =TfidfVectorizer()
 
-X_train = tfidf.fit_transform(X_train.apply(lambda x:''.join(x) ))
+max_words = 5000   # Vocabulary size
+max_len = 100      # Sequence length
 
-X_test = tfidf.transform(X_test.apply(lambda x:''.join(x) ))
+# Create tokenizer
+tokenizer = Tokenizer(num_words=max_words, oov_token="<OOV>")
+tokenizer.fit_on_texts(X_train.apply(lambda x: ' '.join(x)))
+
+# Convert to sequences
+X_train_seq = tokenizer.texts_to_sequences(X_train.apply(lambda x: ' '.join(x)))
+X_test_seq = tokenizer.texts_to_sequences(X_test.apply(lambda x: ' '.join(x)))
+
+# Pad sequences
+X_train = pad_sequences(X_train_seq, maxlen=max_len, padding='post')
+X_test = pad_sequences(X_test_seq, maxlen=max_len, padding='post')
 
 type(X_train)
 
@@ -280,7 +120,8 @@ from sklearn.metrics import mean_squared_error,r2_score
 import matplotlib.pyplot as plt
 
 model = Sequential()
-model.add(Embedding(input_dim = 5000,output_dim= embedding_size,input_length= 39741))
+model.add(Embedding(input_dim=max_words, output_dim=embedding_size, input_length=max_len))
+
 model.add(LSTM(100))
 model.add(Dense(1, activation="sigmoid"))
 model.summary()
@@ -295,9 +136,11 @@ def predict_sentiment(review):
            cleaned_review = cleaned_review.lower()
            tokenized_review = word_tokenize(cleaned_review)
            filtered_review = [word for word in tokenized_review if word not in stop_words]
-           stemmed_review = [stemmer.stem(word) for word in filtered_review]
-           tfidf_review = tfidf.transform([' '.join(stemmed_review)])
-           sentiment_prediction = model.predict(tfidf_review)
+           lemmatized_review = [lamatize.lemmatize(word) for word in filtered_review]
+           seq = tokenizer.texts_to_sequences([' '.join(lemmatized_review)]) # Changed stemmed_review to lemmatized_review
+           padded = pad_sequences(seq, maxlen=max_len, padding='post')
+           sentiment_prediction = model.predict(padded)
+
            if sentiment_prediction > 0.6:
                return "Positive"
            elif sentiment_prediction==0.6:
@@ -308,3 +151,15 @@ def predict_sentiment(review):
 review_to_predict = "This movie was amazing! I loved it."
 predicted_sentiment = predict_sentiment(review_to_predict)
 print("Predicted Sentiment:", predicted_sentiment)
+
+"""Method 2
+
+"""
+
+!pip install transformers
+
+from transformers import pipeline
+sentiment_pipeline = pipeline("sentiment-analysis")
+data = input("enter a text")
+sentiment_pipeline(data)
+
